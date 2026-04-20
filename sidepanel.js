@@ -13,6 +13,8 @@
  */
 
 import { classifyError } from './core/error-classifier.js';
+import { exportTasks, importTasks, batchDownloadVideos } from './core/batch-transfer.js';
+import { getImageBlob, putImageRecord } from './image-store.js';
 
 const STATE = {
   filterPlatform: 'all',
@@ -353,6 +355,109 @@ function bindEvents() {
       loadAll();
     }
   });
+
+  // ─── 批量导入 / 导出 / 视频下载 ─────────────────────────
+  $('exportBtn').addEventListener('click', handleExport);
+  $('importBtn').addEventListener('click', () => {
+    $('importFileInput').value = '';
+    $('importFileInput').click();
+  });
+  $('importFileInput').addEventListener('change', handleImport);
+  $('batchDownloadBtn').addEventListener('click', handleBatchDownload);
+}
+
+// ─── 批量导入/导出/下载视频 ─────────────────────────────
+
+function getFilteredTasks() {
+  return STATE.tasks.filter((t) => {
+    const p = t.platform || 'jimeng';
+    if (STATE.filterPlatform !== 'all' && p !== STATE.filterPlatform) return false;
+    if (STATE.filterStatusList !== 'all') {
+      const allowed = STATE.filterStatusList.split(',');
+      if (!allowed.includes(t.status)) return false;
+    }
+    return true;
+  });
+}
+
+function setTransferProgress(text) {
+  const el = $('transferProgress');
+  if (!el) return;
+  if (text) { el.textContent = text; el.hidden = false; }
+  else { el.hidden = true; }
+}
+
+async function handleExport() {
+  const tasks = getFilteredTasks();
+  if (tasks.length === 0) { toast('当前筛选下没有任务'); return; }
+  const btn = $('exportBtn'); btn.disabled = true;
+  try {
+    const result = await exportTasks(tasks, getImageBlob, (done, total, phase) => {
+      const label = phase === 'images' ? '读图' : phase === 'zipping' ? '打包' : '准备';
+      setTransferProgress(`${label} ${done}/${total}`);
+    });
+    toast(`已导出 ${result.taskCount} 个任务（${(result.zipSize / 1024).toFixed(0)} KB）`);
+  } catch (e) {
+    console.error('导出失败:', e);
+    toast('导出失败：' + (e.message || '未知错误'));
+  } finally {
+    btn.disabled = false;
+    setTransferProgress('');
+  }
+}
+
+async function handleImport(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const btn = $('importBtn'); btn.disabled = true;
+  setTransferProgress('解析 zip...');
+  try {
+    const result = await importTasks(
+      file,
+      putImageRecord,
+      async (task) => {
+        const r = await send({ type: 'ADD_BATCH_TASK', task });
+        if (r?.success === false) throw new Error(r.error || '添加任务失败');
+      }
+    );
+    const msg = result.skipped > 0
+      ? `导入 ${result.imported} 个，跳过 ${result.skipped} 个（引用图片缺失）`
+      : `已导入 ${result.imported} 个任务`;
+    toast(msg);
+    await loadAll();
+  } catch (e) {
+    console.error('导入失败:', e);
+    toast('导入失败：' + (e.message || '未知错误'));
+  } finally {
+    btn.disabled = false;
+    setTransferProgress('');
+  }
+}
+
+async function handleBatchDownload() {
+  const tasks = getFilteredTasks();
+  if (tasks.length === 0) { toast('当前筛选下没有任务'); return; }
+  const completed = tasks.filter(t => t.status === 'completed' && t.videoUrl);
+  if (completed.length === 0) { toast('筛选结果里没有已完成的视频'); return; }
+  if (!confirm(`将下载 ${completed.length} 个视频并打包（并发 3，可能要一会儿），继续？`)) return;
+
+  const btn = $('batchDownloadBtn'); btn.disabled = true;
+  try {
+    const result = await batchDownloadVideos(tasks, {
+      concurrency: 3,
+      onProgress: (done, total) => setTransferProgress(`下载 ${done}/${total}`)
+    });
+    const msg = result.failed > 0
+      ? `已打包 ${result.downloaded} 个，${result.failed} 个失败（见 zip 里的 failed.csv）`
+      : `已打包 ${result.downloaded} 个视频`;
+    toast(msg);
+  } catch (e) {
+    console.error('批量下载失败:', e);
+    toast('批量下载失败：' + (e.message || '未知错误'));
+  } finally {
+    btn.disabled = false;
+    setTransferProgress('');
+  }
 }
 
 // ─── 启动 ────────────────────────────────────────────────

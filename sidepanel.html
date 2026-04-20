@@ -460,6 +460,45 @@
       line-height: 1;
     }
 
+    /* ─── TRANSFER BAR（批量导入/导出/打包下载）──────────────── */
+
+    .transfer-bar {
+      padding: 8px 16px 12px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+    }
+    .transfer-bar .btn-sm {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      padding: 5px 10px;
+      border: 1px solid var(--border-bright);
+      background: var(--surface-2);
+      color: var(--text-mid);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .transfer-bar .btn-sm:hover {
+      border-color: var(--accent);
+      color: var(--accent-bright);
+      background: rgba(167, 139, 250, 0.08);
+    }
+    .transfer-bar .btn-sm:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .transfer-progress {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-mid);
+      margin-left: auto;
+      letter-spacing: 0.05em;
+    }
+
     /* ─── FILTERS ─────────────────────────────────────────────── */
 
     .filters {
@@ -1082,7 +1121,7 @@
         </svg>
         SHOPLOOP
       </div>
-      <div class="lockup-sub">主控台 · v1.0.9</div>
+      <div class="lockup-sub">主控台 · v1.1.0</div>
     </div>
     <div class="head-tools">
       <button class="icon-btn" id="refreshBtn" title="刷新">↻</button>
@@ -1140,6 +1179,15 @@
   <span class="filter-pill" data-filter-status="failed,cancelled">异常</span>
 </div>
 
+<!-- ─── 批量导入 / 导出 / 视频下载 ─── -->
+<div class="transfer-bar">
+  <button class="btn-sm" id="exportBtn" title="导出当前筛选的任务（zip：tasks.json + tasks.csv + images/）">📤 导出任务</button>
+  <button class="btn-sm" id="importBtn" title="导入 zip 包（来自他人导出 / 备份恢复）">📥 导入任务</button>
+  <button class="btn-sm" id="batchDownloadBtn" title="打包下载当前筛选的已完成视频（并发 3）">⬇ 打包视频</button>
+  <input type="file" id="importFileInput" accept=".zip" hidden>
+  <span class="transfer-progress" id="transferProgress" hidden></span>
+</div>
+
 <!-- ─── 任务列表 ─── -->
 <main class="task-list" id="taskList">
   <div class="empty">暂无任务</div>
@@ -1174,6 +1222,7 @@
     </div>
     <div class="foot-body">
       <ul class="changelog-list">
+        <li><span class="ver">1.1.0</span><span class="desc">S3 上传重试 + 错误分层 + 客户端敏感词预审 + 本地错误日志 + 批量导入导出/视频打包 <em>功能</em></span></li>
         <li><span class="ver">1.0.9</span><span class="desc">修复任务失败时显示 [object Object] 的错误格式化 bug <em>修复</em></span></li>
         <li><span class="ver">1.0.8</span><span class="desc">移除商业版 license 模块，准备开源 <em>清理</em></span></li>
         <li><span class="ver">1.0.7</span><span class="desc">底部增加作者署名横幅 <em>UI</em></span></li>
