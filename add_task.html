@@ -450,9 +450,22 @@
       </div>
 
       <div class="form-section">
+        <label class="form-label">任务名称（可选）</label>
+        <input type="text" id="taskName" class="textarea-compact" style="height:34px; padding:6px 10px;" placeholder="给这批任务起个名，方便批量管理和导出（多任务自动加 _01/_02）">
+      </div>
+
+      <div class="form-section">
         <label class="form-label">全局提示词</label>
         <textarea id="globalPrompt" class="textarea-compact" placeholder="可选：会拼接到每一个任务中，适合放视觉风格、技术参数、光影、角色设定等等通用信息"></textarea>
         <div class="form-field-hint">全局提示词会自动拼接到每一条任务中，适合统一视觉风格、技术参数、光影、角色设定等通用信息。</div>
+      </div>
+
+      <div class="form-section" id="moderationPanel" hidden>
+        <div class="form-label-row">
+          <label class="form-label">提交前预审结果</label>
+          <button type="button" id="moderationDismissBtn" style="font-size:11px; padding:2px 8px; border:1px solid var(--border-color); background:#fff; border-radius:4px; cursor:pointer;">我已了解，继续提交</button>
+        </div>
+        <div id="moderationResult" style="padding:10px 12px; background:#fff8e6; border:1px solid #f0c36d; border-radius:6px; font-size:12px; line-height:1.6; white-space:pre-wrap;"></div>
       </div>
 
       <div class="form-section">

@@ -11,5 +11,14 @@ test-*.mjs
 .vscode/
 .idea/
 
+# 测试用大图素材不进 git（5MB+ 的 PNG 会永久留在 git 历史里）
+tests/fixtures/*.png
+tests/fixtures/*.jpg
+tests/fixtures/*.jpeg
+tests/fixtures/*.webp
+
+# 测试产物
+coverage/
+
 # Node（如果以后引入构建工具）
 node_modules/

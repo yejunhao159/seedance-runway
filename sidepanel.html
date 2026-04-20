@@ -752,14 +752,34 @@
 
     .task-error {
       margin-top: 6px;
-      padding: 5px 8px;
+      padding: 6px 8px;
       background: var(--danger-soft);
       border-left: 2px solid var(--danger);
       color: var(--danger);
       font-size: 10px;
-      line-height: 1.4;
-      letter-spacing: 0.03em;
+      line-height: 1.5;
+      letter-spacing: 0.02em;
     }
+    .task-error.warn {
+      background: var(--warning-soft);
+      border-left-color: var(--warning);
+      color: var(--warning);
+    }
+    .task-error .err-title { font-size: 11px; margin-bottom: 2px; }
+    .task-error .err-msg { color: var(--text); margin-bottom: 3px; }
+    .task-error .err-hint { color: var(--text-mid); font-size: 10px; margin-bottom: 5px; }
+    .task-error .err-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+    .task-error .err-action-btn {
+      font-size: 10px;
+      padding: 2px 8px;
+      background: transparent;
+      border: 1px solid currentColor;
+      color: inherit;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: var(--mono);
+    }
+    .task-error .err-action-btn:hover { background: currentColor; color: var(--bg-deep); }
     .task-eta {
       font-family: var(--mono);
       font-size: 10px;

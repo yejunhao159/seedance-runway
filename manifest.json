@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ShopLoop AI 助手",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "ShopLoop AI · 多平台 AI 视频批量生成助手（即梦 + Runway 双平台挂机）",
   "icons": {
     "16": "assets/icon-16.png",

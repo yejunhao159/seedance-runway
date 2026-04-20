@@ -1,4 +1,10 @@
-import { putImageRecord } from './image-store.js';
+import { putImageRecord, getImageRecord } from './image-store.js';
+import { compressImage, formatBytes } from './core/image-compress.js';
+import { preflightCheck } from './core/moderation.js';
+import { logError } from './core/error-log.js';
+
+// 预审"用户已知晓并坚持提交"标记
+let moderationAcknowledged = false;
 
 let editTaskId = null;
 let duplicateTaskId = null;
@@ -50,6 +56,18 @@ function init() {
     if (titleEl) titleEl.textContent = '基于任务新建';
     if (saveBtn) saveBtn.textContent = '创建任务';
     loadTaskIntoForm(duplicateTaskId);
+  } else {
+    restoreFormCache();
+  }
+
+  // 预审面板"我已了解"按钮
+  const moderationDismissBtn = document.getElementById('moderationDismissBtn');
+  if (moderationDismissBtn) {
+    moderationDismissBtn.addEventListener('click', () => {
+      moderationAcknowledged = true;
+      document.getElementById('moderationPanel').hidden = true;
+      saveTask();
+    });
   }
 
   const globalPrompt = document.getElementById('globalPrompt');
@@ -76,7 +94,8 @@ function init() {
   }
 
   document.getElementById('taskReferenceMode').addEventListener('change', updateTaskImagesHint);
-  document.getElementById('globalPrompt').addEventListener('input', updateBatchPreview);
+  document.getElementById('globalPrompt').addEventListener('input', () => { updateBatchPreview(); saveFormCache(); });
+  document.getElementById('taskName').addEventListener('input', saveFormCache);
   document.getElementById('taskPrompt').addEventListener('input', updateBatchPreview);
   document.getElementById('taskPrompt').addEventListener('change', updateBatchPreview);
   document.getElementById('taskComposeMode').addEventListener('change', updateBatchPreview);
@@ -117,6 +136,7 @@ async function loadTaskIntoForm(taskId) {
     }
 
     const promptMeta = task.promptMeta || {};
+    document.getElementById('taskName').value = task.name || '';
     document.getElementById('globalPrompt').value = promptMeta.globalPromptText || '';
     document.getElementById('taskPrompt').value = promptMeta.localPromptText || task.promptText || '';
     document.getElementById('taskComposeMode').value = promptMeta.composeMode || 'prepend';
@@ -351,8 +371,9 @@ function validateFirstLastFrameImageRatios(images, config) {
   throw new Error(`首尾帧图片比例不一致：首帧 ${firstWidth}x${firstHeight}，尾帧 ${lastWidth}x${lastHeight}。请使用相同比例的两张图片。`);
 }
 
-function saveTask() {
+async function saveTask() {
   const platformId = getCurrentPlatform();
+  const taskName = document.getElementById('taskName').value.trim();
   const globalPrompt = document.getElementById('globalPrompt').value.trim();
   const raw = document.getElementById('taskPrompt').value.trim();
   const composeMode = document.getElementById('taskComposeMode').value;
@@ -420,6 +441,23 @@ function saveTask() {
     return;
   }
 
+  // ─── 客户端前置预审（prompt 敏感词 + 图片格式）───────────
+  // 若命中且用户未点"我已了解"，展示面板并中止本次保存
+  if (!moderationAcknowledged) {
+    try {
+      const combined = [globalPrompt, raw].filter(Boolean).join(' ');
+      const imageBlobs = selectedImages.filter(i => i.file).map(i => i.file);
+      const pre = await preflightCheck({ prompt: combined, images: imageBlobs });
+      if (!pre.ok) {
+        showModerationPanel(pre);
+        return;
+      }
+    } catch (e) {
+      console.warn('[moderation] 预审失败（跳过，不阻塞）:', e);
+    }
+  }
+  moderationAcknowledged = false; // 重置，下次保存仍需预审
+
   const btn = document.getElementById('saveTaskBtn');
   btn.disabled = true;
   const originalText = btn.textContent;
@@ -438,15 +476,21 @@ function saveTask() {
     }
 
     return (async () => {
-      const { thumbnail, width, height } = await generateThumbnail(file.file, 120);
+      const { blob, thumbnail, width, height, originalSize, compressedSize, wasCompressed } = await compressImage(file.file);
       const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      await putImageRecord({ id: imageId, blob: file.file, fileName: file.name });
+      await putImageRecord({ id: imageId, blob, fileName: file.name });
+      if (wasCompressed) {
+        console.info(`[compress] ${file.name}: ${formatBytes(originalSize)} → ${formatBytes(compressedSize)}`);
+      }
       return {
         fileName: file.name,
         preview: thumbnail,
         imageId,
         width,
-        height
+        height,
+        originalSize,
+        compressedSize,
+        wasCompressed
       };
     })();
   });
@@ -471,6 +515,9 @@ function saveTask() {
 
         const taskPayload = {
           platform: platformId,
+          name: taskName
+            ? (drafts.length > 1 ? `${taskName}_${String(i + 1).padStart(2, '0')}` : taskName)
+            : '',
           promptText: draft.promptText,
           images,
           config: taskConfig,
@@ -494,14 +541,88 @@ function saveTask() {
       }
       chrome.runtime.sendMessage({ type: 'TASK_ADDED_SUCCESSFULLY' });
       releaseAllPreviewResources();
+      chrome.storage.local.remove('formCache').catch(() => {});
       closeTaskWindow();
     })
     .catch((error) => {
       console.error('保存任务失败:', error);
+      logError({
+        error,
+        platform: platformId,
+        promptText: raw,
+        imageIds: selectedImages.filter(i => i.imageId).map(i => i.imageId),
+        context: { phase: 'saveTask' }
+      }).catch(() => {});
       alert(`保存任务失败: ${error.message}`);
       btn.disabled = false;
       btn.textContent = originalText;
     });
+}
+
+function showModerationPanel(pre) {
+  const panel = document.getElementById('moderationPanel');
+  const result = document.getElementById('moderationResult');
+  if (!panel || !result) return;
+
+  const lines = [];
+  if (pre.prompt.hitCount > 0) {
+    lines.push(`⚠ 描述词命中 ${pre.prompt.hitCount} 项敏感词：`);
+    const byCat = {};
+    for (const h of pre.prompt.hits) {
+      if (!byCat[h.label]) byCat[h.label] = { words: [], advice: h.advice };
+      byCat[h.label].words.push(h.word);
+    }
+    for (const [label, info] of Object.entries(byCat)) {
+      lines.push(`  · [${label}] ${info.words.join('、')}`);
+      lines.push(`    建议：${info.advice}`);
+    }
+  }
+  const imgIssues = pre.images.filter(r => !r.ok || r.issues.length > 0);
+  if (imgIssues.length > 0) {
+    lines.push('');
+    lines.push(`⚠ 图片预检发现 ${imgIssues.length} 张有问题：`);
+    for (const r of imgIssues) {
+      for (const issue of r.issues) {
+        const tag = issue.level === 'error' ? '✗' : '!';
+        lines.push(`  ${tag} 第 ${r.index + 1} 张：${issue.message}`);
+      }
+    }
+  }
+  lines.push('');
+  lines.push('这些命中是基于本地词表的前置检查，不代表 Runway 一定拒绝。');
+  lines.push('你可以：① 点"编辑"修改后再保存；② 或点右上角"我已了解，继续提交"强行保存。');
+
+  result.textContent = lines.join('\n');
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ─── 表单缓存（全局提示词 + 任务名 + 参考图） ──────────────
+async function saveFormCache() {
+  const globalPrompt = document.getElementById('globalPrompt').value;
+  const taskName = document.getElementById('taskName').value;
+  const images = selectedImages.map(img => ({
+    fileName: img.name,
+    preview: img.previewUrl || img.preview,
+    imageId: img.imageId || null,
+    width: img.width || null,
+    height: img.height || null
+  }));
+  try {
+    await chrome.storage.local.set({ formCache: { globalPrompt, taskName, images } });
+  } catch {}
+}
+
+async function restoreFormCache() {
+  try {
+    const { formCache } = await chrome.storage.local.get('formCache');
+    if (!formCache) return;
+    if (formCache.globalPrompt) document.getElementById('globalPrompt').value = formCache.globalPrompt;
+    if (formCache.taskName) document.getElementById('taskName').value = formCache.taskName;
+    updateBatchPreview();
+  } catch (e) {
+    console.warn('恢复表单缓存失败:', e);
+  }
 }
 
 function parsePromptSegments(raw, splitMode = DEFAULT_SPLIT_MODE) {

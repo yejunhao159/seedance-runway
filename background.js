@@ -18,6 +18,7 @@ import {
   parseRunwayTaskResponse
 } from './platforms/runway/index.js';
 import { RUNWAY_QUEUE } from './platforms/runway/config.js';
+import { logError } from './core/error-log.js';
 
 // Runway 日上限：账号风险缓解，单日累计提交不超过 80 条
 const RUNWAY_DAILY_CAP = 80;
@@ -1610,6 +1611,15 @@ class BatchManager {
         queueErr.cause = error;
         throw queueErr;
       }
+      // 上传/提交失败：记日志（S3 超时等）
+      logError({
+        error,
+        taskId: task.id,
+        platform: 'runway',
+        promptText: task.promptText,
+        imageIds: (task.images || []).map(i => i.imageId).filter(Boolean),
+        context: { phase: 'submitRunwayTask' }
+      }).catch(() => {});
       throw error;
     }
 
@@ -1661,6 +1671,17 @@ class BatchManager {
       task.queueInfo = null;
       this.runningTasks.delete(runwayTaskId);
       await this.saveTasks();
+      // 记录到本地错误日志（异步，不阻塞主流程）
+      if (update.status === 'failed') {
+        logError({
+          error: update.error || { message: task.error, reason: update.error?.reason, code: update.error?.code },
+          taskId: task.id,
+          platform: 'runway',
+          promptText: task.promptText,
+          imageIds: (task.images || []).map(i => i.imageId).filter(Boolean),
+          context: { runwayTaskId, source, rawStatus: update.rawStatus }
+        }).catch(() => {});
+      }
       this.maybeResumeBatch(`runwayUpdate:${source}:${update.status}`);
       return true;
     }

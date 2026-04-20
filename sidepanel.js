@@ -12,6 +12,8 @@
  *   - chrome.storage.onChanged 监听 batchTasks，立即刷新
  */
 
+import { classifyError } from './core/error-classifier.js';
+
 const STATE = {
   filterPlatform: 'all',
   filterStatusList: 'all',
@@ -180,16 +182,28 @@ function renderTaskCard(task) {
     actions.push(`<button data-action="delete" data-task-id="${task.id}">删除</button>`);
   }
 
-  // 防御：历史数据里 task.error 可能是对象（旧 bug 残留），coerce 一次
-  const errorText = task.error == null
-    ? ''
-    : (typeof task.error === 'string'
-        ? task.error
-        : (task.error.message
-            || (() => { try { return JSON.stringify(task.error); } catch { return '任务失败'; } })()));
-  const errorHtml = errorText
-    ? `<div class="task-error">${escapeHtml(errorText)}</div>`
-    : '';
+  // 错误分层展示：用 classifyError 把原始错误转成 { title/message/suggestion/actions }
+  let errorHtml = '';
+  if (task.error) {
+    const cls = classifyError(task.error);
+    const severityClass = cls.severity === 'warning' ? 'task-error warn' : 'task-error';
+    const actionBtns = cls.actions.map(a => {
+      const taskAttr = a.id === 'edit-retry' ? `data-action="edit" data-task-id="${task.id}"` :
+                        a.id === 'retry' ? `data-action="retry" data-task-id="${task.id}"` :
+                        a.id === 'replace-image' ? `data-action="edit" data-task-id="${task.id}"` :
+                        a.id === 'relogin' ? `data-action="open-runway"` :
+                        a.id === 'view-log' ? `data-action="open-settings"` : '';
+      return `<button class="err-action-btn" ${taskAttr}>${escapeHtml(a.label)}</button>`;
+    }).join('');
+    errorHtml = `
+      <div class="${severityClass}">
+        <div class="err-title"><strong>${escapeHtml(cls.title)}</strong></div>
+        <div class="err-msg">${escapeHtml(cls.message)}</div>
+        <div class="err-hint">${escapeHtml(cls.suggestion)}</div>
+        <div class="err-actions">${actionBtns}</div>
+      </div>
+    `;
+  }
 
   const promptText = task.promptText || task.config?.prompt || '(无提示词)';
   const aspectRatio = task.config?.aspectRatio || '';
@@ -260,6 +274,10 @@ function handleTaskAction(action, taskId) {
       url: chrome.runtime.getURL(`add_task.html?${action === 'retry' ? 'duplicate' : 'edit'}=${encodeURIComponent(taskId)}`),
       type: 'popup', width: 760, height: 720
     });
+  } else if (action === 'open-runway') {
+    chrome.tabs.create({ url: 'https://runwayml.com/' });
+  } else if (action === 'open-settings') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
   }
 }
 
@@ -276,7 +294,7 @@ function bindEvents() {
   });
 
   $('settingsBtn').addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('runway-debug.html') });
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
   });
 
   $('startBtn').addEventListener('click', async () => {

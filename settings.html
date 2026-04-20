@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>ShopLoop · 设置</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: #f6f7fb;
+      color: #222;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .app { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+    header { margin-bottom: 24px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: #666; font-size: 13px; }
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid #e2e6ee; }
+    .tab {
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      cursor: pointer;
+      color: #555;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active { color: #7c3aed; border-bottom-color: #7c3aed; font-weight: 500; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e6ee;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 14px; margin-bottom: 10px; color: #333; }
+    .card .hint { color: #888; font-size: 12px; margin-bottom: 12px; }
+    .category-section { margin-bottom: 16px; }
+    .category-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .category-title { font-weight: 500; font-size: 13px; color: #444; }
+    .category-advice { font-size: 11px; color: #888; }
+    .word-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: #f0eefe;
+      color: #5b34d6;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    .chip.builtin { background: #eef3fb; color: #555; }
+    .chip .remove { cursor: pointer; font-weight: 600; opacity: 0.6; }
+    .chip .remove:hover { opacity: 1; }
+    .add-row { display: flex; gap: 6px; margin-top: 6px; }
+    .add-row input, .add-row select {
+      padding: 6px 10px;
+      border: 1px solid #d6dae3;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .add-row input { flex: 1; }
+    .btn {
+      padding: 6px 14px;
+      border: 1px solid #7c3aed;
+      background: #7c3aed;
+      color: #fff;
+      border-radius: 5px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn.ghost { background: transparent; color: #7c3aed; }
+    .btn.danger { border-color: #e34c4c; background: #e34c4c; }
+    .btn:hover { opacity: 0.9; }
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+    .stat-item {
+      padding: 10px;
+      background: #f6f7fb;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .stat-num { font-size: 20px; font-weight: 600; color: #7c3aed; }
+    .stat-label { font-size: 11px; color: #666; margin-top: 2px; }
+    .log-list { max-height: 560px; overflow-y: auto; }
+    .log-entry {
+      padding: 10px 12px;
+      border: 1px solid #e6e9f0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #fff;
+    }
+    .log-entry .log-title { display: flex; justify-content: space-between; font-size: 12px; }
+    .log-category {
+      display: inline-block;
+      padding: 1px 6px;
+      font-size: 10px;
+      border-radius: 3px;
+      background: #e34c4c;
+      color: #fff;
+      margin-right: 6px;
+    }
+    .log-category.warn { background: #f0a030; }
+    .log-entry .log-meta { font-size: 11px; color: #888; margin-top: 4px; }
+    .log-entry .log-preview { font-size: 12px; color: #555; margin-top: 4px; font-family: ui-monospace, monospace; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+    .empty { text-align: center; color: #888; padding: 40px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>ShopLoop 设置</h1>
+      <p class="subtitle">管理敏感词预审表、查看错误日志、导出诊断数据</p>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="moderation">敏感词预审</button>
+      <button class="tab" data-tab="logs">错误日志</button>
+    </div>
+
+    <!-- 敏感词管理 -->
+    <div class="panel active" id="panel-moderation">
+      <div class="card">
+        <h2>自定义敏感词</h2>
+        <p class="hint">
+          插件会在每次提交前检查 prompt 是否命中这些词，命中时弹出提醒。
+          <strong>命中不会阻塞提交</strong>，你仍可以选择"我已了解，继续提交"。
+          <br>默认词表（灰色）无法删除，仅为了让你知道插件在检查哪些。自定义词（紫色）可以随时增删。
+        </p>
+
+        <div id="categoriesContainer"></div>
+
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #e6e9f0;">
+          <button class="btn ghost" id="resetUserWordsBtn">清空所有自定义词</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 错误日志 -->
+    <div class="panel" id="panel-logs">
+      <div class="card">
+        <h2>错误统计</h2>
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="toolbar">
+          <select id="logFilter">
+            <option value="">全部类型</option>
+            <option value="S3_UPLOAD">上传失败</option>
+            <option value="SAFETY_THIRD_PARTY">第三方审核</option>
+            <option value="SAFETY_ASIMOV">Asimov 审核</option>
+            <option value="AUTH">鉴权</option>
+            <option value="QUOTA">配额</option>
+            <option value="NETWORK">网络</option>
+            <option value="UNKNOWN">未知</option>
+          </select>
+          <button class="btn ghost" id="refreshLogsBtn">刷新</button>
+          <button class="btn" id="exportLogsBtn">导出 JSON</button>
+          <button class="btn danger" id="clearLogsBtn">清空日志</button>
+        </div>
+        <div class="log-list" id="logList">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

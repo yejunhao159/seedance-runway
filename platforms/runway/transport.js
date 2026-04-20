@@ -221,19 +221,86 @@ export async function callRunway(method, path, body = null, opts = {}) {
 }
 
 /**
- * 上传二进制到 Runway 预签名 S3 URL
+ * 上传二进制到 Runway 预签名 S3 URL（带 AbortController + 指数退避重试）
  * 不需要 JWT（URL 自带签名）
+ *
+ * 重试策略：
+ *   - 最多 3 次重试（1s/3s/7s 退避）
+ *   - 仅对幂等错误重试：400 RequestTimeout / 408 / 5xx / 网络错误 / Abort
+ *   - 403/404/413 立即放弃（签名错/体积错，重试无意义）
+ *
+ * 动态 timeout：`max(30s, size_MB × 8s, capped 120s)`
+ * 应对 S3 "idle socket closed" —— 弱网 + 大图时，应用层兜底
  */
-export async function putToPresignedUrl(signedUrl, blob, extraHeaders = {}) {
-  const response = await fetch(signedUrl, {
-    method: 'PUT',
-    headers: { ...extraHeaders },
-    body: blob
-  });
-  if (!response.ok) {
-    throw new Error(`S3 上传失败 ${response.status}: ${await response.text()}`);
+const RETRY_BACKOFF_MS = [1000, 3000, 7000];
+const RETRYABLE_STATUS = new Set([0, 408, 500, 502, 503, 504]);
+
+function isRetryableError(err, status) {
+  if (err?.name === 'AbortError') return true;
+  if (status != null) {
+    if (RETRYABLE_STATUS.has(status)) return true;
+    // S3 特定：400 RequestTimeout 是 idle socket close，可重试
+    if (status === 400 && /RequestTimeout/i.test(err?.body || '')) return true;
+    return false;
   }
-  // S3 在响应头里返回 ETag
-  const etag = response.headers.get('etag') || response.headers.get('ETag');
-  return { etag: etag ? etag.replace(/^"|"$/g, '') : null };
+  // 无 status = fetch 本身抛错（网络错）
+  return true;
+}
+
+function computeUploadTimeoutMs(byteSize) {
+  const sizeMb = byteSize / (1024 * 1024);
+  const dynamic = Math.max(30000, Math.round(sizeMb * 8000));
+  return Math.min(dynamic, 120000);
+}
+
+async function attemptPut(signedUrl, blob, extraHeaders, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(signedUrl, {
+      method: 'PUT',
+      headers: { ...extraHeaders },
+      body: blob,
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      const err = new Error(`S3 上传失败 ${response.status}: ${text}`);
+      err.status = response.status;
+      err.body = text;
+      throw err;
+    }
+    const etag = response.headers.get('etag') || response.headers.get('ETag');
+    return { etag: etag ? etag.replace(/^"|"$/g, '') : null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function putToPresignedUrl(signedUrl, blob, extraHeaders = {}) {
+  const timeoutMs = computeUploadTimeoutMs(blob.size);
+  let lastErr = null;
+
+  for (let attempt = 0; attempt <= RETRY_BACKOFF_MS.length; attempt++) {
+    try {
+      return await attemptPut(signedUrl, blob, extraHeaders, timeoutMs);
+    } catch (err) {
+      lastErr = err;
+      const status = err?.status;
+      const retryable = isRetryableError(err, status);
+      const isLast = attempt === RETRY_BACKOFF_MS.length;
+      if (!retryable || isLast) {
+        // 附加一个稳定的错误码，给错误分层模块用
+        if (err?.name === 'AbortError') lastErr.code = 'S3_TIMEOUT';
+        else if (status === 400 && /RequestTimeout/i.test(err?.body || '')) lastErr.code = 'S3_IDLE_TIMEOUT';
+        else if (status >= 500) lastErr.code = 'S3_SERVER_ERROR';
+        else lastErr.code = 'S3_UPLOAD_FAILED';
+        throw lastErr;
+      }
+      const wait = RETRY_BACKOFF_MS[attempt];
+      console.warn(`[putToPresignedUrl] attempt ${attempt + 1} failed (${err?.message || err}), retry in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
 }
